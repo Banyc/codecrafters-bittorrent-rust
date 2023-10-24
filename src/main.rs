@@ -81,3 +81,48 @@ fn main() {
         println!("unknown command: {}", args[1])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_string() {
+        let encoded_value = "5:hello";
+        let (value, _) = decode_bencoded_value(encoded_value);
+        assert_eq!(value, serde_json::Value::String("hello".into()));
+    }
+
+    #[test]
+    fn test_number() {
+        let encoded_value = "i52e";
+        let (value, _) = decode_bencoded_value(encoded_value);
+        assert_eq!(value, serde_json::Value::Number(52.into()));
+        let encoded_value = "i-52e";
+        let (value, _) = decode_bencoded_value(encoded_value);
+        assert_eq!(value, serde_json::Value::Number((-52).into()));
+    }
+
+    #[test]
+    fn test_list() {
+        let encoded_value = "l5:helloi52ee";
+        let (value, _) = decode_bencoded_value(encoded_value);
+        assert_eq!(
+            value,
+            serde_json::Value::Array(vec![
+                serde_json::Value::String("hello".into()),
+                serde_json::Value::Number(52.into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_dictionary() {
+        let encoded_value = "d3:foo3:bar5:helloi52ee";
+        let (value, _) = decode_bencoded_value(encoded_value);
+        let mut map = serde_json::Map::new();
+        map.insert("hello".into(), serde_json::Value::Number(52.into()));
+        map.insert("foo".into(), serde_json::Value::String("bar".into()));
+        assert_eq!(value, serde_json::Value::Object(map));
+    }
+}
