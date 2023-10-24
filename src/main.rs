@@ -43,6 +43,28 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, usize) {
         }
     }
 
+    // If encoded_value starts with 'd', it's a dictionary
+    if encoded_value.starts_with('d') {
+        // Example: "d3:foo3:bar5:helloi52ee" -> {"hello": 52, "foo":"bar"}
+        let mut map: serde_json::Map<String, serde_json::Value> = Default::default();
+        let mut pos = 1;
+        loop {
+            let remaining = encoded_value.get(pos..).unwrap();
+            if remaining.starts_with('e') {
+                return (serde_json::Value::Object(map), pos);
+            }
+            let (key, read) = decode_bencoded_value(remaining);
+            let key = key.as_str().unwrap().to_string();
+            pos += read;
+
+            let remaining = encoded_value.get(pos..).unwrap();
+            let (value, read) = decode_bencoded_value(remaining);
+            pos += read;
+
+            map.insert(key, value);
+        }
+    }
+
     panic!("Unhandled encoded value: {}", encoded_value)
 }
 
