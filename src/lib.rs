@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, fmt};
 
+use getset::{CopyGetters, Getters};
+
 pub fn decode_bencoded_value(encoded_value: &[u8]) -> (Value, usize) {
     // If encoded_value starts with a digit, it's a number
     if encoded_value[0].is_ascii_digit() {
@@ -133,8 +135,38 @@ mod tests {
 pub enum Value {
     Bytes(Vec<u8>),
     Integer(i64),
-    List(Vec<Value>),
-    Dictionary(BTreeMap<String, Value>),
+    List(Vec<Self>),
+    Dictionary(BTreeMap<String, Self>),
+}
+
+impl Value {
+    pub fn into_bytes(self) -> Option<Vec<u8>> {
+        let Self::Bytes(bytes) = self else {
+            return None;
+        };
+        Some(bytes)
+    }
+
+    pub fn into_integer(self) -> Option<i64> {
+        let Self::Integer(integer) = self else {
+            return None;
+        };
+        Some(integer)
+    }
+
+    pub fn into_list(self) -> Option<Vec<Self>> {
+        let Self::List(list) = self else {
+            return None;
+        };
+        Some(list)
+    }
+
+    pub fn into_dictionary(self) -> Option<BTreeMap<String, Self>> {
+        let Self::Dictionary(dictionary) = self else {
+            return None;
+        };
+        Some(dictionary)
+    }
 }
 
 impl fmt::Display for Value {
@@ -165,5 +197,55 @@ impl fmt::Display for Value {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Getters)]
+pub struct Metainfo {
+    #[getset(get = "pub")]
+    announce: String,
+    #[getset(get = "pub")]
+    info: MetainfoInfo,
+}
+
+impl Metainfo {
+    pub fn decode(value: Value) -> Self {
+        let mut value = value.into_dictionary().unwrap();
+        let announce =
+            String::from_utf8(value.remove("announce").unwrap().into_bytes().unwrap()).unwrap();
+        let info = MetainfoInfo::decode(value.remove("info").unwrap());
+        Self { announce, info }
+    }
+}
+
+#[derive(Debug, Getters, CopyGetters)]
+pub struct MetainfoInfo {
+    #[getset(get_copy = "pub")]
+    length: usize,
+    #[getset(get = "pub")]
+    name: String,
+    #[getset(get_copy = "pub")]
+    piece_length: usize,
+    #[getset(get = "pub")]
+    pieces: Vec<u8>,
+}
+
+impl MetainfoInfo {
+    pub fn decode(value: Value) -> Self {
+        let mut value = value.into_dictionary().unwrap();
+        let length = value.remove("length").unwrap().into_integer().unwrap();
+        let name = String::from_utf8(value.remove("name").unwrap().into_bytes().unwrap()).unwrap();
+        let piece_length = value
+            .remove("piece length")
+            .unwrap()
+            .into_integer()
+            .unwrap();
+        let pieces = value.remove("pieces").unwrap().into_bytes().unwrap();
+        Self {
+            length: usize::try_from(length).unwrap(),
+            name,
+            piece_length: usize::try_from(piece_length).unwrap(),
+            pieces,
+        }
     }
 }

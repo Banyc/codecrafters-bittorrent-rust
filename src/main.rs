@@ -1,7 +1,7 @@
 // use serde_json;
 use std::{env, io::Read};
 
-use bittorrent_starter_rust::decode_bencoded_value;
+use bittorrent_starter_rust::{decode_bencoded_value, Metainfo};
 
 // Available if you need it!
 // use serde_bencode;
@@ -21,7 +21,10 @@ fn main() {
         let mut buf = vec![];
         file.read_to_end(&mut buf).unwrap();
         let (decoded_value, _) = decode_bencoded_value(&buf);
-        println!("{decoded_value}");
+        // println!("{decoded_value}");
+        let info = Metainfo::decode(decoded_value);
+        println!("Tracker URL: {}", info.announce());
+        println!("Length: {}", info.info().length());
     } else {
         println!("unknown command: {}", args[1])
     }
