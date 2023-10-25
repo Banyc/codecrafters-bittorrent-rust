@@ -25,6 +25,13 @@ fn main() {
         let info = Metainfo::decode(decoded_value);
         println!("Tracker URL: {}", info.announce());
         println!("Length: {}", info.info().length());
+        {
+            print!("Info Hash: ");
+            for byte in info.info().hash() {
+                print!("{:x}", byte);
+            }
+            println!();
+        }
     } else {
         println!("unknown command: {}", args[1])
     }

@@ -271,10 +271,18 @@ pub struct MetainfoInfo {
     piece_length: usize,
     #[getset(get = "pub")]
     pieces: Vec<u8>,
+    #[getset(get = "pub")]
+    hash: [u8; 20],
 }
 
 impl MetainfoInfo {
     pub fn decode(value: Value) -> Self {
+        let bencoded = encode_bencoded_value(&value);
+        use sha1::Digest;
+        let mut hasher = sha1::Sha1::new();
+        hasher.update(&bencoded);
+        let hash = hasher.finalize().into();
+
         let mut value = value.into_dictionary().unwrap();
         let length = value.remove("length").unwrap().into_integer().unwrap();
         let name = String::from_utf8(value.remove("name").unwrap().into_bytes().unwrap()).unwrap();
@@ -289,6 +297,7 @@ impl MetainfoInfo {
             name,
             piece_length: usize::try_from(piece_length).unwrap(),
             pieces,
+            hash,
         }
     }
 }
