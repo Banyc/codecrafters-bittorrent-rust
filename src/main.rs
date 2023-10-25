@@ -1,5 +1,5 @@
 // use serde_json;
-use std::{env, io::Read};
+use std::{env, fmt, io::Read};
 
 use bittorrent_starter_rust::{decode_bencoded_value, Metainfo};
 
@@ -25,14 +25,32 @@ fn main() {
         let info = Metainfo::decode(decoded_value);
         println!("Tracker URL: {}", info.announce());
         println!("Length: {}", info.info().length());
-        {
-            print!("Info Hash: ");
-            for byte in info.info().hash() {
-                print!("{:x}", byte);
-            }
-            println!();
+        println!("Info Hash: {}", DisplayHash::from(&info.info().hash()[..]));
+        println!("Piece Length: {}", info.info().piece_length());
+        println!("Piece hashes:");
+        for piece_hash in info.info().piece_hashes() {
+            println!("{}", DisplayHash::from(piece_hash))
         }
     } else {
         println!("unknown command: {}", args[1])
+    }
+}
+
+pub struct DisplayHash<'hash> {
+    hash: &'hash [u8],
+}
+
+impl<'hash> From<&'hash [u8]> for DisplayHash<'hash> {
+    fn from(value: &'hash [u8]) -> Self {
+        Self { hash: value }
+    }
+}
+
+impl fmt::Display for DisplayHash<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.hash {
+            write!(f, "{:02x}", byte)?;
+        }
+        Ok(())
     }
 }

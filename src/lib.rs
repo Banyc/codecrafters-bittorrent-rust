@@ -269,7 +269,6 @@ pub struct MetainfoInfo {
     name: String,
     #[getset(get_copy = "pub")]
     piece_length: usize,
-    #[getset(get = "pub")]
     pieces: Vec<u8>,
     #[getset(get = "pub")]
     hash: [u8; 20],
@@ -299,5 +298,9 @@ impl MetainfoInfo {
             pieces,
             hash,
         }
+    }
+
+    pub fn piece_hashes(&self) -> impl Iterator<Item = &[u8]> {
+        self.pieces.chunks(20)
     }
 }
