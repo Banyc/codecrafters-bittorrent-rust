@@ -75,6 +75,43 @@ pub fn decode_bencoded_value(encoded_value: &[u8]) -> (Value, usize) {
     )
 }
 
+pub fn encode_bencoded_value(decoded_value: &Value) -> Vec<u8> {
+    let mut encoded_value = vec![];
+    match decoded_value {
+        Value::Bytes(bytes) => {
+            let length = bytes.len().to_string();
+            encoded_value.extend(length.bytes());
+            encoded_value.push(b':');
+            encoded_value.extend(bytes);
+        }
+        Value::Integer(integer) => {
+            encoded_value.push(b'i');
+            let integer = integer.to_string();
+            encoded_value.extend(integer.bytes());
+            encoded_value.push(b'e');
+        }
+        Value::List(list) => {
+            encoded_value.push(b'l');
+            for item in list {
+                let item = encode_bencoded_value(item);
+                encoded_value.extend(item);
+            }
+            encoded_value.push(b'e');
+        }
+        Value::Dictionary(dictionary) => {
+            encoded_value.push(b'd');
+            for (key, value) in dictionary {
+                let key = encode_bencoded_value(&Value::Bytes(key.as_bytes().into()));
+                encoded_value.extend(key);
+                let value = encode_bencoded_value(value);
+                encoded_value.extend(value);
+            }
+            encoded_value.push(b'e');
+        }
+    }
+    encoded_value
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Read;
@@ -86,6 +123,7 @@ mod tests {
         let encoded_value = b"5:hello";
         let (value, _) = decode_bencoded_value(encoded_value);
         assert_eq!(value, Value::Bytes(b"hello".into()));
+        assert_eq!(encoded_value, &encode_bencoded_value(&value)[..]);
     }
 
     #[test]
@@ -93,9 +131,12 @@ mod tests {
         let encoded_value = b"i52e";
         let (value, _) = decode_bencoded_value(encoded_value);
         assert_eq!(value, Value::Integer(52));
+        assert_eq!(encoded_value, &encode_bencoded_value(&value)[..]);
+
         let encoded_value = b"i-52e";
         let (value, _) = decode_bencoded_value(encoded_value);
         assert_eq!(value, Value::Integer(-52));
+        assert_eq!(encoded_value, &encode_bencoded_value(&value)[..]);
     }
 
     #[test]
@@ -109,6 +150,7 @@ mod tests {
                 Value::Integer(52.into()),
             ])
         );
+        assert_eq!(encoded_value, &encode_bencoded_value(&value)[..]);
     }
 
     #[test]
@@ -119,6 +161,7 @@ mod tests {
         map.insert("hello".into(), Value::Integer(52));
         map.insert("foo".into(), Value::Bytes(b"bar".into()));
         assert_eq!(value, Value::Dictionary(map));
+        assert_eq!(encoded_value, &encode_bencoded_value(&value)[..]);
     }
 
     #[test]
