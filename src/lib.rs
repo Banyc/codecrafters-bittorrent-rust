@@ -1,6 +1,12 @@
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::BTreeMap,
+    fmt, io,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+};
 
+use byteorder::{BigEndian, ReadBytesExt};
 use getset::{CopyGetters, Getters};
+use serde::Serialize;
 
 pub fn decode_bencoded_value(encoded_value: &[u8]) -> (Value, usize) {
     // If encoded_value starts with a digit, it's a number
@@ -174,7 +180,7 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub enum Value {
     Bytes(Vec<u8>),
     Integer(i64),
@@ -302,5 +308,78 @@ impl MetainfoInfo {
 
     pub fn piece_hashes(&self) -> impl Iterator<Item = &[u8]> {
         self.pieces.chunks(20)
+    }
+}
+
+pub struct TrackerRequest<'caller> {
+    pub info_hash: &'caller [u8],
+    pub peer_id: &'caller [u8],
+    pub port: u16,
+    pub uploaded: u64,
+    pub downloaded: u64,
+    pub left: u64,
+    pub compact: bool,
+}
+
+impl<'a> TrackerRequest<'a> {
+    pub fn url(&'a self, metainfo: &'a Metainfo) -> String {
+        let url_encoded_info_hash = urlencoding::encode_binary(metainfo.info().hash());
+        let url_encoded_peer_id = urlencoding::encode_binary(self.peer_id);
+
+        let mut url = String::new();
+        url.push_str(metainfo.announce());
+        url.push('?');
+        url.push_str("info_hash=");
+        url.push_str(&url_encoded_info_hash);
+        url.push('&');
+        url.push_str("peer_id=");
+        url.push_str(&url_encoded_peer_id);
+        url.push('&');
+        url.push_str("port=");
+        url.push_str(&self.port.to_string());
+        url.push('&');
+        url.push_str("uploaded=");
+        url.push_str(&self.uploaded.to_string());
+        url.push('&');
+        url.push_str("downloaded=");
+        url.push_str(&self.downloaded.to_string());
+        url.push('&');
+        url.push_str("left=");
+        url.push_str(&self.left.to_string());
+        url.push('&');
+        url.push_str("compact=");
+        url.push_str(&(self.compact as u8).to_string());
+        url
+    }
+}
+
+#[derive(Debug, Getters, CopyGetters)]
+pub struct TrackerResponse {
+    #[getset(get_copy = "pub")]
+    interval: u64,
+    #[getset(get = "pub")]
+    peers: Vec<SocketAddr>,
+}
+
+impl TrackerResponse {
+    pub fn decode(value: Value) -> Self {
+        let mut value = value.into_dictionary().unwrap();
+        let interval =
+            u64::try_from(value.remove("interval").unwrap().into_integer().unwrap()).unwrap();
+        let peers = value.remove("peers").unwrap().into_bytes().unwrap();
+        let peers = peers.chunks_exact(6);
+        let peers = peers
+            .map(|bytes| {
+                let mut reader = io::Cursor::new(bytes);
+                let _ip = reader.read_u32::<BigEndian>().unwrap();
+                let port = reader.read_u16::<BigEndian>().unwrap();
+                SocketAddr::V4(SocketAddrV4::new(
+                    Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]),
+                    port,
+                ))
+            })
+            .collect();
+
+        Self { interval, peers }
     }
 }
