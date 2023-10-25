@@ -4,9 +4,10 @@ use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
 };
 
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::BigEndian;
 use getset::{CopyGetters, Getters};
 use serde::Serialize;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 pub fn decode_bencoded_value(encoded_value: &[u8]) -> (Value, usize) {
     // If encoded_value starts with a digit, it's a number
@@ -370,6 +371,7 @@ impl TrackerResponse {
         let peers = peers.chunks_exact(6);
         let peers = peers
             .map(|bytes| {
+                use byteorder::ReadBytesExt;
                 let mut reader = io::Cursor::new(bytes);
                 let _ip = reader.read_u32::<BigEndian>().unwrap();
                 let port = reader.read_u16::<BigEndian>().unwrap();
@@ -381,5 +383,54 @@ impl TrackerResponse {
             .collect();
 
         Self { interval, peers }
+    }
+}
+
+#[derive(Debug, Getters)]
+pub struct HandshakeResponse {
+    #[getset(get = "pub")]
+    info_hash: [u8; 20],
+    #[getset(get = "pub")]
+    peer_id: [u8; 20],
+}
+
+impl HandshakeResponse {
+    pub async fn decode<R>(reader: &mut R) -> Self
+    where
+        R: AsyncRead + Unpin,
+    {
+        use tokio::io::AsyncReadExt;
+        let length = reader.read_u8().await.unwrap();
+        let mut protocol = vec![0; length as usize];
+        reader.read_exact(&mut protocol).await.unwrap();
+        assert_eq!("BitTorrent protocol", String::from_utf8(protocol).unwrap());
+        let mut reserved = [0; 8];
+        reader.read_exact(&mut reserved).await.unwrap();
+        let mut info_hash = [0; 20];
+        reader.read_exact(&mut info_hash).await.unwrap();
+        let mut peer_id = [0; 20];
+        reader.read_exact(&mut peer_id).await.unwrap();
+        Self { info_hash, peer_id }
+    }
+}
+
+pub struct HandshakeRequest<'caller> {
+    pub info_hash: &'caller [u8; 20],
+    pub peer_id: &'caller [u8; 20],
+}
+
+impl HandshakeRequest<'_> {
+    pub async fn encode<W>(&self, writer: &mut W)
+    where
+        W: AsyncWrite + Unpin,
+    {
+        use tokio::io::AsyncWriteExt;
+        let protocol = b"BitTorrent protocol";
+        writer.write_u8(protocol.len() as u8).await.unwrap();
+        writer.write_all(protocol).await.unwrap();
+        writer.write_all(&[0; 8]).await.unwrap();
+        writer.write_all(self.info_hash).await.unwrap();
+        writer.write_all(self.peer_id).await.unwrap();
+        writer.flush().await.unwrap();
     }
 }

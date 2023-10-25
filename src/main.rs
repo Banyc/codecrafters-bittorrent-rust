@@ -2,10 +2,15 @@
 use std::{
     env, fmt,
     io::{self, Read},
+    net::SocketAddr,
     path::Path,
 };
 
-use bittorrent_starter_rust::{decode_bencoded_value, Metainfo, TrackerRequest, TrackerResponse};
+use bittorrent_starter_rust::{
+    decode_bencoded_value, HandshakeRequest, HandshakeResponse, Metainfo, TrackerRequest,
+    TrackerResponse,
+};
+use tokio::net::TcpStream;
 
 // Available if you need it!
 // use serde_bencode;
@@ -54,6 +59,18 @@ async fn main() {
         for peer in resp.peers() {
             println!("{peer}");
         }
+    } else if command == "handshake" {
+        let metainfo = parse_metainfo_file(&args[2]).unwrap();
+        let peer = &args[3];
+        let peer: SocketAddr = peer.parse().unwrap();
+        let mut stream = TcpStream::connect(peer).await.unwrap();
+        let handshake = HandshakeRequest {
+            info_hash: metainfo.info().hash(),
+            peer_id: b"00112233445566778899",
+        };
+        handshake.encode(&mut stream).await;
+        let handshake = HandshakeResponse::decode(&mut stream).await;
+        println!("Peer ID: {}", DisplayHash::from(&handshake.peer_id()[..]));
     } else {
         println!("unknown command: {}", args[1])
     }
