@@ -271,11 +271,11 @@ impl Metainfo {
 #[derive(Debug, Getters, CopyGetters)]
 pub struct MetainfoInfo {
     #[getset(get_copy = "pub")]
-    length: usize,
+    length: u32,
     #[getset(get = "pub")]
     name: String,
     #[getset(get_copy = "pub")]
-    piece_length: usize,
+    piece_length: u32,
     pieces: Vec<u8>,
     #[getset(get = "pub")]
     hash: [u8; 20],
@@ -299,9 +299,9 @@ impl MetainfoInfo {
             .unwrap();
         let pieces = value.remove("pieces").unwrap().into_bytes().unwrap();
         Self {
-            length: usize::try_from(length).unwrap(),
+            length: u32::try_from(length).unwrap(),
             name,
-            piece_length: usize::try_from(piece_length).unwrap(),
+            piece_length: u32::try_from(piece_length).unwrap(),
             pieces,
             hash,
         }
@@ -434,3 +434,167 @@ impl HandshakeRequest<'_> {
         writer.flush().await.unwrap();
     }
 }
+
+#[derive(Debug, Getters, CopyGetters)]
+pub struct PeerMessageIn {
+    #[getset(get_copy = "pub")]
+    message_id: PeerMessageId,
+    #[getset(get = "pub")]
+    payload: Vec<u8>,
+}
+
+impl PeerMessageIn {
+    pub async fn decode<R>(reader: &mut R) -> Self
+    where
+        R: AsyncRead + Unpin,
+    {
+        use tokio::io::AsyncReadExt;
+        let message_length = reader.read_u32().await.unwrap();
+        let message_id = reader.read_u8().await.unwrap();
+        let message_id = PeerMessageId::from_code(message_id);
+        let mut payload = vec![0; (message_length - 1) as usize];
+        reader.read_exact(&mut payload).await.unwrap();
+        Self {
+            message_id,
+            payload,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct PeerMessageOut<'caller> {
+    pub message_id: PeerMessageId,
+    pub payload: &'caller [u8],
+}
+
+impl PeerMessageOut<'_> {
+    pub async fn encode<W>(&self, writer: &mut W)
+    where
+        W: AsyncWrite + Unpin,
+    {
+        use tokio::io::AsyncWriteExt;
+        let message_len = self.payload.len() + 1;
+        writer
+            .write_u32(u32::try_from(message_len).unwrap())
+            .await
+            .unwrap();
+        writer.write_u8(self.message_id.code()).await.unwrap();
+        writer.write_all(self.payload).await.unwrap();
+        writer.flush().await.unwrap();
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PeerMessageId {
+    Bitfield,
+    Interested,
+    Unchoke,
+    Request,
+    Piece,
+}
+
+impl PeerMessageId {
+    pub fn from_code(code: u8) -> Self {
+        match code {
+            5 => Self::Bitfield,
+            2 => Self::Interested,
+            1 => Self::Unchoke,
+            6 => Self::Request,
+            7 => Self::Piece,
+            _ => panic!(),
+        }
+    }
+
+    pub fn code(&self) -> u8 {
+        match self {
+            Self::Bitfield => 5,
+            Self::Interested => 2,
+            Self::Unchoke => 1,
+            Self::Request => 6,
+            Self::Piece => 7,
+        }
+    }
+}
+
+pub struct PeerMessageRequest {
+    pub index: u32,
+    pub begin: u32,
+    pub length: u32,
+}
+
+impl PeerMessageRequest {
+    pub async fn encode<W>(&self, writer: &mut W)
+    where
+        W: AsyncWrite + Unpin,
+    {
+        use tokio::io::AsyncWriteExt;
+        writer.write_u32(self.index).await.unwrap();
+        writer.write_u32(self.begin).await.unwrap();
+        writer.write_u32(self.length).await.unwrap();
+        writer.flush().await.unwrap();
+    }
+}
+
+// impl PeerMessageRequest {
+//     pub fn to_value(&self) -> Value {
+//         let mut map = BTreeMap::new();
+//         map.insert(
+//             "index".to_string(),
+//             Value::Integer(i64::try_from(self.index).unwrap()),
+//         );
+//         map.insert(
+//             "begin".to_string(),
+//             Value::Integer(i64::try_from(self.begin).unwrap()),
+//         );
+//         map.insert(
+//             "length".to_string(),
+//             Value::Integer(i64::try_from(self.length).unwrap()),
+//         );
+//         Value::Dictionary(map)
+//     }
+// }
+
+#[derive(Debug, Getters, CopyGetters)]
+pub struct PeerMessageResponse {
+    #[getset(get_copy = "pub")]
+    index: u32,
+    #[getset(get_copy = "pub")]
+    begin: u32,
+    #[getset(get = "pub")]
+    block: Vec<u8>,
+}
+
+impl PeerMessageResponse {
+    pub async fn decode<R>(reader: &mut R, reader_length: usize) -> Self
+    where
+        R: AsyncRead + Unpin,
+    {
+        use tokio::io::AsyncReadExt;
+        let index = reader.read_u32().await.unwrap();
+        let begin = reader.read_u32().await.unwrap();
+        let block = reader_length - 4 - 4;
+        let mut block = vec![0; block];
+        reader.read_exact(&mut block).await.unwrap();
+        Self {
+            index,
+            begin,
+            block,
+        }
+    }
+}
+
+// impl PeerMessageResponse {
+//     pub fn from_value(value: Value) -> Self {
+//         let mut value = value.into_dictionary().unwrap();
+//         let index =
+//             usize::try_from(value.remove("index").unwrap().into_integer().unwrap()).unwrap();
+//         let begin =
+//             usize::try_from(value.remove("begin").unwrap().into_integer().unwrap()).unwrap();
+//         let block = value.remove("block").unwrap().into_bytes().unwrap();
+//         Self {
+//             index,
+//             begin,
+//             block,
+//         }
+//     }
+// }
