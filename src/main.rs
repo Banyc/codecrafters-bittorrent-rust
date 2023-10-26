@@ -129,6 +129,72 @@ async fn main() {
             }
         }
         println!("Piece {piece_index} downloaded to {output_file_path}");
+    } else if command == "download" {
+        let metainfo = parse_metainfo_file(&args[4]).unwrap();
+        let peers = peers(&metainfo, my_peer_id, my_port).await;
+        let (mut stream, _handshake) = establish(&metainfo, my_peer_id, peers.peers()[0]).await;
+        let available_pieces = PeerMessageIn::decode(&mut stream).await;
+        assert!(matches!(
+            available_pieces.message_id(),
+            PeerMessageId::Bitfield
+        ));
+        PeerMessageOut {
+            message_id: PeerMessageId::Interested,
+            payload: &[],
+        }
+        .encode(&mut stream)
+        .await;
+        let unchoke = PeerMessageIn::decode(&mut stream).await;
+        assert!(matches!(unchoke.message_id(), PeerMessageId::Unchoke));
+        let block_size = 2_u32.pow(14);
+        let output_file_path = &args[3];
+        let _ = tokio::fs::remove_file(output_file_path).await;
+        let mut output_file = tokio::fs::File::options()
+            .write(true)
+            .create(true)
+            .open(output_file_path)
+            .await
+            .unwrap();
+        for (piece_index, _piece_hash) in metainfo.info().piece_hashes().enumerate() {
+            let piece_index = u32::try_from(piece_index).unwrap();
+            let piece_length = metainfo
+                .info()
+                .piece_length()
+                .min(metainfo.info().length() - metainfo.info().piece_length() * piece_index);
+
+            let mut remaining_piece = piece_length;
+            while remaining_piece > 0 {
+                let begin = piece_length - remaining_piece;
+                let block_size = remaining_piece.min(block_size);
+                remaining_piece -= block_size;
+
+                let req = PeerMessageRequest {
+                    index: piece_index,
+                    begin,
+                    length: block_size,
+                };
+                let mut payload = vec![];
+                req.encode(&mut payload).await;
+                let req = PeerMessageOut {
+                    message_id: PeerMessageId::Request,
+                    payload: &payload,
+                };
+                req.encode(&mut stream).await;
+
+                let resp = PeerMessageIn::decode(&mut stream).await;
+                assert!(matches!(resp.message_id(), PeerMessageId::Piece));
+                let payload_length = resp.payload().len();
+                let mut payload = io::Cursor::new(resp.payload());
+                let resp = PeerMessageResponse::decode(&mut payload, payload_length).await;
+                assert_eq!(resp.block().len(), block_size as usize);
+                use tokio::io::AsyncWriteExt;
+                output_file.write_all(resp.block()).await.unwrap();
+            }
+        }
+        println!(
+            "Downloaded {} to {output_file_path}",
+            metainfo.info().name()
+        );
     } else {
         println!("unknown command: {}", args[1])
     }
